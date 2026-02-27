@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SL / PH Generator v2</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body{
+  font-family: Arial;
+  background:#f4f6fb;
+  padding:20px;
+  max-width:1200px;
+  margin:auto;
+}
+
+textarea{
+  width:100%;
+  height:220px;
+  margin-top:10px;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  font-family: monospace;
+}
+
+button{
+  padding:10px 18px;
+  border:none;
+  background:#2d6cdf;
+  color:white;
+  border-radius:6px;
+  cursor:pointer;
+  margin-top:10px;
+}
+
+.copyBtn{
+  background:#2aa876;
+}
+
+input{
+  padding:8px;
+  margin-top:5px;
+}
+
+#errorBox{
+  background:#ffe5e5;
+  border:1px solid #ff4d4d;
+  color:#a10000;
+  padding:12px;
+  border-radius:6px;
+  margin-top:10px;
+  display:none;
+}
+</style>
+</head>
+
+<body>
+
+<h2>SL / Preheader Script Generator</h2>
+
+<h3>Paste Data (from Excel)</h3>
+<textarea id="inputData" placeholder="Paste your rows here..."></textarea>
+
+<h3>OR Upload Excel</h3>
+<input type="file" id="upload">
+
+<div id="errorBox"></div>
+
+<br><br>
+
+<label>Stream Field Name</label>
+<br>
+<input id="streamField" value="stream_id">
+<br>
+<label>Order Field Name</label>
+<br>
+<input id="orderField" value="order_id">
+
+<br><br>
+<button onclick="generate()">Generate Scripts</button>
+
+<h3>Subject Line Script</h3>
+<button class="copyBtn" onclick="copyText('subject')">Copy</button>
+<textarea id="subject"></textarea>
+
+<h3>Preheader Script</h3>
+<button class="copyBtn" onclick="copyText('preheader')">Copy</button>
+<textarea id="preheader"></textarea>
+
+<script>
+
+let excelRows = [];
+
+/* Upload Excel */
+document.getElementById("upload").addEventListener("change", function(e){
+  const reader = new FileReader();
+
+  reader.onload = function(e){
+    const wb = XLSX.read(e.target.result, {type:'binary'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    excelRows = XLSX.utils.sheet_to_json(sheet, {header:1});
+  };
+
+  reader.readAsBinaryString(e.target.files[0]);
+});
+
+/* Detect header rows */
+function isHeaderRow(row){
+  const c1 = row[0] ? row[0].toLowerCase() : "";
+  const c2 = row[1] ? row[1].toLowerCase() : "";
+  const c3 = row[2] ? row[2].toLowerCase() : "";
+
+  return (
+    c1.includes("send") ||
+    c2.includes("subject") ||
+    c3.includes("keycode")
+  );
+}
+
+/* Validation */
+function validateRows(rows){
+
+  const validSend = [
+    "Initial: SL",
+    "Initial: PH",
+    "Echo: SL",
+    "Echo PH"
+  ];
+
+  let errors = [];
+  let foundInitialSL = false;
+  let foundInitialPH = false;
+  let foundEchoSL = false;
+
+  rows.forEach((r, index) => {
+
+    if(isHeaderRow(r)) return;
+
+    const send = r[0] ? r[0].trim() : "";
+    const text = r[1] ? r[1].trim() : "";
+    const key = r[2] ? r[2].trim() : "";
+    const rowNum = index + 1;
+
+    if(!send && !text && !key) return;
+
+    /* Validate stream */
+    if(key){
+      if(!/^stream\s*\d+\s*\|/i.test(key)){
+        errors.push(`Row ${rowNum}: Invalid stream format → ${key}`);
+      }
+    }
+
+    /* Validate send */
+    if(send && !validSend.includes(send)){
+      errors.push(`Row ${rowNum}: Invalid Send value → ${send}`);
+    }
+
+    /* Validate text */
+    if(send && !text){
+      errors.push(`Row ${rowNum}: Missing Subject/Preheader text`);
+    }
+
+    /* Order validation */
+    if(send === "Initial: SL") foundInitialSL = true;
+    if(send === "Initial: PH") foundInitialPH = true;
+
+    if(send === "Echo: SL"){
+      if(!foundInitialSL){
+        errors.push(`Row ${rowNum}: Echo SL before Initial SL`);
+      }
+      foundEchoSL = true;
+    }
+
+    if(send === "Echo PH"){
+      if(!foundInitialPH){
+        errors.push(`Row ${rowNum}: Echo PH before Initial PH`);
+      }
+      if(!foundEchoSL){
+        errors.push(`Row ${rowNum}: Echo PH without Echo SL`);
+      }
+    }
+
+  });
+
+  if(errors.length){
+    const box = document.getElementById("errorBox");
+    box.style.display = "block";
+    box.innerHTML = "<b>Data errors detected:</b><br><br>" + errors.join("<br>");
+    return false;
+  }
+
+  document.getElementById("errorBox").style.display = "none";
+  return true;
+}
+
+/* Generate */
+function generate(){
+
+  let rows = [];
+  const pasted = document.getElementById("inputData").value.trim();
+
+  if(pasted){
+    rows = pasted.split("\n").map(r => r.split("\t"));
+  } else {
+    rows = excelRows;
+  }
+
+  if(!validateRows(rows)) return;
+
+  let streams = {};
+  let current = {};
+  let currentStream = "";
+
+  rows.forEach(r => {
+
+    if(isHeaderRow(r)) return;
+
+    const send = r[0] ? r[0].trim() : "";
+    const text = r[1] ? r[1].trim() : "";
+    const key = r[2] ? r[2].trim() : "";
+
+    /* Improved stream detection */
+    if(key){
+      const match = key.match(/stream\s*(\d+)/i);
+      if(match){
+        currentStream = "S" + match[1].padStart(2,"0");
+      }
+    }
+
+    if(send === "Initial: SL") current.initialSL = text;
+    if(send === "Initial: PH") current.initialPH = text;
+    if(send === "Echo: SL") current.echoSL = text;
+
+    if(send === "Echo PH"){
+      current.echoPH = text;
+
+      if(!streams[currentStream]) streams[currentStream] = [];
+
+      streams[currentStream].push({
+        initialSL: current.initialSL,
+        echoSL: current.echoSL,
+        initialPH: current.initialPH,
+        echoPH: current.echoPH
+      });
+
+      current = {};
+    }
+
+  });
+
+  buildScripts(streams);
+}
+
+/* Build scripts */
+function buildScripts(streams){
+
+let streamField = document.getElementById("streamField").value.trim();
+let orderField = document.getElementById("orderField").value.trim();
+
+if(!streamField.startsWith("customer.")){
+  streamField = "customer." + streamField;
+}
+
+if(!orderField.startsWith("customer.")){
+  orderField = "customer." + orderField;
+}
+
+  let subject = "";
+  let preheader = "";
+  let first = true;
+
+  Object.keys(streams).forEach(stream => {
+
+    let email = 1;
+
+    streams[stream].forEach(set => {
+
+      let em1 = "EM" + String(email).padStart(2,"0");
+
+      if(first){
+        subject += `{%- if ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialSL}\n`;
+        preheader += `{%- if ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialPH}\n`;
+        first = false;
+      } else {
+        subject += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialSL}\n`;
+        preheader += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialPH}\n`;
+      }
+
+      email++;
+
+      let em2 = "EM" + String(email).padStart(2,"0");
+
+      subject += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em2}" -%}\n${set.echoSL}\n`;
+      preheader += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em2}" -%}\n${set.echoPH}\n`;
+
+      email++;
+
+    });
+
+  });
+
+  subject += `{%- else -%}
+Default Subjectline
+{%- endif -%}`;
+
+  preheader += `{%- else -%}
+Default Preheader
+{%- endif -%}`;
+
+  document.getElementById("subject").value = subject;
+  document.getElementById("preheader").value = preheader;
+}
+
+/* Copy */
+function copyText(id){
+  const text = document.getElementById(id);
+  text.select();
+  document.execCommand("copy");
+}
+
+</script>
+
+</body>
+</html>
