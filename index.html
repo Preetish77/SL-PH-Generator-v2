@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -89,6 +91,10 @@ input{
 <h3>Preheader Script</h3>
 <button class="copyBtn" onclick="copyText('preheader')">Copy</button>
 <textarea id="preheader"></textarea>
+
+<h3>Creative ID Script</h3>
+<button class="copyBtn" onclick="copyText('creativeid')">Copy</button>
+<textarea id="creativeid"></textarea>
 
 <script>
 
@@ -253,6 +259,8 @@ function generate(){
   let current = {};
 
   let currentStream = "";
+ 
+  let currentCreative = "";
 
   rows.forEach(r=>{
 
@@ -264,17 +272,28 @@ function generate(){
 
     const key = r[2] ? r[2].trim() : "";
 
-    if(key){
+   
 
-      const match = key.match(/stream\s*(\d+)/i);
+if(key){
 
-      if(match){
+    // Example:
+    // Stream1|Patient
+    // Stream2|HCP
+    // Stream3|Lorbrena
 
+    const parts = key.split("|");
+
+    const match = parts[0].match(/stream\s*(\d+)/i);
+
+    if(match){
         currentStream = "S" + match[1].padStart(2,"0");
-
-      }
-
     }
+
+    if(parts.length > 1){
+        currentCreative = parts[1].trim();
+    }
+
+}
 
     if(send === "initial sl") current.initialSL = text;
 
@@ -288,14 +307,15 @@ function generate(){
 
       if(!streams[currentStream]) streams[currentStream] = [];
 
-      streams[currentStream].push({
+     streams[currentStream].push({
 
-        initialSL: current.initialSL,
-        echoSL: current.echoSL,
-        initialPH: current.initialPH,
-        echoPH: current.echoPH
+    initialSL: current.initialSL,
+    echoSL: current.echoSL,
+    initialPH: current.initialPH,
+    echoPH: current.echoPH,
+    creativeID: currentCreative
 
-      });
+});
 
       current = {};
 
@@ -327,6 +347,8 @@ let subject = "";
 
 let preheader = "";
 
+let creative = "";
+
 let first = true;
 
 Object.keys(streams).forEach(stream=>{
@@ -343,15 +365,18 @@ subject += `{%- if ${streamField} == "${stream}" and ${orderField} == "${em1}" -
 
 preheader += `{%- if ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialPH}\n`;
 
+creative += `{%- if ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.creativeID}\n`;
+
 first = false;
 
 }
-
 else{
 
 subject += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialSL}\n`;
 
 preheader += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.initialPH}\n`;
+
+creative += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em1}" -%}\n${set.creativeID}\n`;
 
 }
 
@@ -359,9 +384,12 @@ email++;
 
 let em2 = "EM" + String(email).padStart(2,"0");
 
+
 subject += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em2}" -%}\n${set.echoSL}\n`;
 
 preheader += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em2}" -%}\n${set.echoPH}\n`;
+
+creative += `{%- elif ${streamField} == "${stream}" and ${orderField} == "${em2}" -%}\n${set.creativeID}\n`;
 
 email++;
 
@@ -377,9 +405,15 @@ preheader += `{%- else -%}
 Default Preheader
 {%- endif -%}`;
 
+creative += `{%- else -%}
+Default Creative ID
+{%- endif -%}`;
+
 document.getElementById("subject").value = subject;
 
 document.getElementById("preheader").value = preheader;
+
+document.getElementById("creativeid").value = creative;
 
 }
 
